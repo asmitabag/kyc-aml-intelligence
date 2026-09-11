@@ -6,133 +6,199 @@ import numpy as np
 import pandas as pd
 
 
-# ---------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------
+BASE_METADATA = Path(
+    "data/processed/midv_base/metadata.csv"
+)
 
-INPUT_ROOT = Path("data/processed/midv_base/images")
+REGION_METADATA = Path(
+    "data/processed/document_regions/metadata.csv"
+)
 
-OUTPUT_ROOT = Path("data/processed/forgery_dataset")
+OUTPUT_ROOT = Path(
+    "data/processed/forgery_dataset_v2"
+)
 
 OUTPUT_IMAGES = OUTPUT_ROOT / "images"
 OUTPUT_MASKS = OUTPUT_ROOT / "masks"
 
-OUTPUT_IMAGES.mkdir(parents=True, exist_ok=True)
-OUTPUT_MASKS.mkdir(parents=True, exist_ok=True)
+OUTPUT_IMAGES.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+OUTPUT_MASKS.mkdir(
+    parents=True,
+    exist_ok=True
+)
 
 
-# Keep the first run deliberately small.
-# We only want to verify the pipeline first.
 NUM_SOURCE_IMAGES = 30
-
 RANDOM_SEED = 42
 
 random.seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
 
-# ---------------------------------------------------------
-# Utility functions
-# ---------------------------------------------------------
-
-def load_image(path: Path):
+def load_image(path):
     image = cv2.imread(str(path))
 
     if image is None:
-        raise ValueError(f"Could not read image: {path}")
+        raise ValueError(
+            f"Could not read image: {path}"
+        )
 
     return image
 
 
-def create_empty_mask(height: int, width: int):
-    return np.zeros((height, width), dtype=np.uint8)
-
-
-def choose_random_region(height: int, width: int):
-    """
-    Select a reasonably small rectangular region.
-
-    We avoid the extreme borders because patches pasted at the
-    edges can become invalid or partly outside the image.
-    """
-
-    region_width = random.randint(
-        max(30, width // 12),
-        max(40, width // 5)
+def load_mask(path):
+    mask = cv2.imread(
+        str(path),
+        cv2.IMREAD_GRAYSCALE
     )
 
-    region_height = random.randint(
-        max(30, height // 12),
-        max(40, height // 5)
+    if mask is None:
+        raise ValueError(
+            f"Could not read mask: {path}"
+        )
+
+    return mask
+
+
+def create_empty_mask(height, width):
+    return np.zeros(
+        (height, width),
+        dtype=np.uint8
     )
 
-    x1 = random.randint(
-        width // 10,
-        max(width // 10, width - region_width - width // 10)
+
+def get_document_bbox(document_mask):
+
+    points = cv2.findNonZero(
+        document_mask
     )
 
-    y1 = random.randint(
-        height // 10,
-        max(height // 10, height - region_height - height // 10)
+    if points is None:
+        raise ValueError(
+            "Document mask is empty"
+        )
+
+    x, y, w, h = cv2.boundingRect(
+        points
     )
 
-    x2 = x1 + region_width
-    y2 = y1 + region_height
-
-    return x1, y1, x2, y2
+    return x, y, x + w, y + h
 
 
-# ---------------------------------------------------------
-# Tampering operations
-# ---------------------------------------------------------
+def choose_region_inside_document(
+    document_mask
+):
 
-def copy_move(image):
+    height, width = (
+        document_mask.shape
+    )
+
+    doc_x1, doc_y1, doc_x2, doc_y2 = (
+        get_document_bbox(
+            document_mask
+        )
+    )
+
+    doc_width = (
+        doc_x2 - doc_x1
+    )
+
+    doc_height = (
+        doc_y2 - doc_y1
+    )
+
+    for _ in range(100):
+
+        region_width = random.randint(
+            max(20, doc_width // 8),
+            max(30, doc_width // 4)
+        )
+
+        region_height = random.randint(
+            max(20, doc_height // 8),
+            max(30, doc_height // 4)
+        )
+
+        if (
+            region_width >= doc_width
+            or region_height >= doc_height
+        ):
+            continue
+
+        x1 = random.randint(
+            doc_x1,
+            doc_x2 - region_width
+        )
+
+        y1 = random.randint(
+            doc_y1,
+            doc_y2 - region_height
+        )
+
+        x2 = x1 + region_width
+        y2 = y1 + region_height
+
+
+        region_mask = (
+            document_mask[
+                y1:y2,
+                x1:x2
+            ]
+        )
+
+
+        inside_fraction = (
+            np.count_nonzero(
+                region_mask
+            )
+            /
+            region_mask.size
+        )
+
+
+        if inside_fraction >= 0.95:
+
+            return (
+                x1,
+                y1,
+                x2,
+                y2
+            )
+
+
+    raise RuntimeError(
+        "Could not find valid region "
+        "inside document"
+    )
+
+
+def local_blur(
+    image,
+    document_mask
+):
+
     result = image.copy()
 
-    height, width = result.shape[:2]
+    height, width = (
+        result.shape[:2]
+    )
 
-    x1, y1, x2, y2 = choose_random_region(height, width)
+    x1, y1, x2, y2 = (
+        choose_region_inside_document(
+            document_mask
+        )
+    )
 
-    patch = result[y1:y2, x1:x2].copy()
 
-    patch_height, patch_width = patch.shape[:2]
-
-    max_x = width - patch_width
-    max_y = height - patch_height
-
-    destination_x = random.randint(0, max_x)
-    destination_y = random.randint(0, max_y)
-
-    result[
-        destination_y:destination_y + patch_height,
-        destination_x:destination_x + patch_width
-    ] = patch
-
-    mask = create_empty_mask(height, width)
-
-    mask[
-        destination_y:destination_y + patch_height,
-        destination_x:destination_x + patch_width
-    ] = 255
-
-    bbox = [
-        destination_x,
-        destination_y,
-        destination_x + patch_width,
-        destination_y + patch_height,
+    region = result[
+        y1:y2,
+        x1:x2
     ]
 
-    return result, mask, bbox
-
-
-def local_blur(image):
-    result = image.copy()
-
-    height, width = result.shape[:2]
-
-    x1, y1, x2, y2 = choose_random_region(height, width)
-
-    region = result[y1:y2, x1:x2]
 
     blurred = cv2.GaussianBlur(
         region,
@@ -140,166 +206,422 @@ def local_blur(image):
         0
     )
 
-    result[y1:y2, x1:x2] = blurred
 
-    mask = create_empty_mask(height, width)
-
-    mask[y1:y2, x1:x2] = 255
-
-    bbox = [x1, y1, x2, y2]
-
-    return result, mask, bbox
+    result[
+        y1:y2,
+        x1:x2
+    ] = blurred
 
 
-def local_brightness(image):
+    mask = create_empty_mask(
+        height,
+        width
+    )
+
+
+    mask[
+        y1:y2,
+        x1:x2
+    ] = 255
+
+
+    return (
+        result,
+        mask,
+        [x1, y1, x2, y2]
+    )
+
+
+def local_brightness(
+    image,
+    document_mask
+):
+
     result = image.copy()
 
-    height, width = result.shape[:2]
+    height, width = (
+        result.shape[:2]
+    )
 
-    x1, y1, x2, y2 = choose_random_region(height, width)
 
-    region = result[y1:y2, x1:x2]
+    x1, y1, x2, y2 = (
+        choose_region_inside_document(
+            document_mask
+        )
+    )
 
-    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
 
-    value_channel = hsv[:, :, 2].astype(np.int16)
+    region = result[
+        y1:y2,
+        x1:x2
+    ]
 
-    brightness_change = random.choice([-50, -35, 35, 50])
+
+    hsv = cv2.cvtColor(
+        region,
+        cv2.COLOR_BGR2HSV
+    )
+
+
+    value_channel = (
+        hsv[:, :, 2]
+        .astype(np.int16)
+    )
+
+
+    brightness_change = (
+        random.choice(
+            [-50, -35, 35, 50]
+        )
+    )
+
 
     value_channel = np.clip(
-        value_channel + brightness_change,
+        value_channel
+        + brightness_change,
         0,
         255
     )
 
-    hsv[:, :, 2] = value_channel.astype(np.uint8)
+
+    hsv[:, :, 2] = (
+        value_channel
+        .astype(np.uint8)
+    )
+
 
     modified = cv2.cvtColor(
         hsv,
         cv2.COLOR_HSV2BGR
     )
 
-    result[y1:y2, x1:x2] = modified
 
-    mask = create_empty_mask(height, width)
-
-    mask[y1:y2, x1:x2] = 255
-
-    bbox = [x1, y1, x2, y2]
-
-    return result, mask, bbox
+    result[
+        y1:y2,
+        x1:x2
+    ] = modified
 
 
-def patch_replace(image, donor_image):
+    mask = create_empty_mask(
+        height,
+        width
+    )
+
+
+    mask[
+        y1:y2,
+        x1:x2
+    ] = 255
+
+
+    return (
+        result,
+        mask,
+        [x1, y1, x2, y2]
+    )
+
+
+def copy_move(
+    image,
+    document_mask
+):
+
     result = image.copy()
 
-    height, width = result.shape[:2]
+    height, width = (
+        result.shape[:2]
+    )
+
+
+    sx1, sy1, sx2, sy2 = (
+        choose_region_inside_document(
+            document_mask
+        )
+    )
+
+
+    source_patch = (
+        result[
+            sy1:sy2,
+            sx1:sx2
+        ]
+        .copy()
+    )
+
+
+    patch_height, patch_width = (
+        source_patch.shape[:2]
+    )
+
+
+    for _ in range(100):
+
+        dx1, dy1, dx2, dy2 = (
+            choose_region_inside_document(
+                document_mask
+            )
+        )
+
+
+        destination_width = (
+            dx2 - dx1
+        )
+
+        destination_height = (
+            dy2 - dy1
+        )
+
+
+        if (
+            destination_width <= 0
+            or destination_height <= 0
+        ):
+            continue
+
+
+        resized_patch = cv2.resize(
+            source_patch,
+            (
+                destination_width,
+                destination_height
+            )
+        )
+
+
+        result[
+            dy1:dy2,
+            dx1:dx2
+        ] = resized_patch
+
+
+        mask = create_empty_mask(
+            height,
+            width
+        )
+
+
+        mask[
+            dy1:dy2,
+            dx1:dx2
+        ] = 255
+
+
+        return (
+            result,
+            mask,
+            [dx1, dy1, dx2, dy2]
+        )
+
+
+    raise RuntimeError(
+        "Could not create copy-move"
+    )
+
+
+def patch_replace(
+    image,
+    donor_image,
+    document_mask
+):
+
+    result = image.copy()
+
+    height, width = (
+        result.shape[:2]
+    )
+
 
     donor = cv2.resize(
         donor_image,
         (width, height)
     )
 
-    x1, y1, x2, y2 = choose_random_region(height, width)
 
-    patch = donor[y1:y2, x1:x2].copy()
-
-    result[y1:y2, x1:x2] = patch
-
-    mask = create_empty_mask(height, width)
-
-    mask[y1:y2, x1:x2] = 255
-
-    bbox = [x1, y1, x2, y2]
-
-    return result, mask, bbox
-
-
-# ---------------------------------------------------------
-# Find available images
-# ---------------------------------------------------------
-
-image_paths = sorted(INPUT_ROOT.glob("*.png"))
-
-if not image_paths:
-    raise RuntimeError(
-        f"No PNG images found inside {INPUT_ROOT}"
+    x1, y1, x2, y2 = (
+        choose_region_inside_document(
+            document_mask
+        )
     )
 
 
-print(f"Available MIDV base images: {len(image_paths)}")
+    patch = donor[
+        y1:y2,
+        x1:x2
+    ].copy()
 
 
-# ---------------------------------------------------------
-# Select a small debug subset
-# ---------------------------------------------------------
+    result[
+        y1:y2,
+        x1:x2
+    ] = patch
 
-selected_images = random.sample(
-    image_paths,
-    min(NUM_SOURCE_IMAGES, len(image_paths))
+
+    mask = create_empty_mask(
+        height,
+        width
+    )
+
+
+    mask[
+        y1:y2,
+        x1:x2
+    ] = 255
+
+
+    return (
+        result,
+        mask,
+        [x1, y1, x2, y2]
+    )
+
+
+base_metadata = pd.read_csv(
+    BASE_METADATA
+)
+
+region_metadata = pd.read_csv(
+    REGION_METADATA
+)
+
+
+metadata = base_metadata.merge(
+    region_metadata[
+        [
+            "sample_id",
+            "document_mask",
+        ]
+    ],
+    on="sample_id",
+    how="inner"
+)
+
+
+print(
+    f"Available samples: "
+    f"{len(metadata)}"
+)
+
+
+if len(metadata) == 0:
+    raise RuntimeError(
+        "No matching MIDV samples found"
+    )
+
+
+selected = metadata.sample(
+    n=min(
+        NUM_SOURCE_IMAGES,
+        len(metadata)
+    ),
+    random_state=RANDOM_SEED
+).reset_index(
+    drop=True
 )
 
 
 records = []
 
 
-# ---------------------------------------------------------
-# Generate dataset
-# ---------------------------------------------------------
-
-tamper_functions = [
-    "copy_move",
+tamper_types = [
     "local_blur",
     "local_brightness",
+    "copy_move",
     "patch_replace",
 ]
 
 
-for index, source_path in enumerate(selected_images):
+for index, row in selected.iterrows():
 
     print(
-        f"Processing {index + 1}/{len(selected_images)}: "
-        f"{source_path.name}"
+        f"Processing "
+        f"{index + 1}/"
+        f"{len(selected)}"
     )
 
-    image = load_image(source_path)
 
-    height, width = image.shape[:2]
+    image_path = Path(
+        row["processed_path"]
+    )
+
+    mask_path = Path(
+        row["document_mask"]
+    )
 
 
-    # -----------------------------------------------------
-    # 1. Save genuine sample
-    # -----------------------------------------------------
+    image = load_image(
+        image_path
+    )
 
-    genuine_name = f"genuine_{index:04d}.png"
+    document_mask = load_mask(
+        mask_path
+    )
 
-    genuine_mask_name = f"genuine_{index:04d}_mask.png"
 
-    genuine_output = OUTPUT_IMAGES / genuine_name
+    height, width = (
+        image.shape[:2]
+    )
 
-    genuine_mask_output = OUTPUT_MASKS / genuine_mask_name
+
+    genuine_name = (
+        f"genuine_{index:04d}.png"
+    )
+
+    genuine_mask_name = (
+        f"genuine_{index:04d}_mask.png"
+    )
+
+
+    genuine_output = (
+        OUTPUT_IMAGES
+        / genuine_name
+    )
+
+    genuine_mask_output = (
+        OUTPUT_MASKS
+        / genuine_mask_name
+    )
+
 
     cv2.imwrite(
         str(genuine_output),
         image
     )
 
-    genuine_mask = create_empty_mask(
-        height,
-        width
+
+    genuine_mask = (
+        create_empty_mask(
+            height,
+            width
+        )
     )
+
 
     cv2.imwrite(
         str(genuine_mask_output),
         genuine_mask
     )
 
+
     records.append(
         {
-            "sample_id": f"genuine_{index:04d}",
-            "source_image": str(source_path),
-            "output_image": str(genuine_output),
-            "mask_path": str(genuine_mask_output),
+            "sample_id": (
+                f"genuine_{index:04d}"
+            ),
+            "source_sample_id": (
+                row["sample_id"]
+            ),
+            "source_image": str(
+                image_path
+            ),
+            "output_image": str(
+                genuine_output
+            ),
+            "mask_path": str(
+                genuine_mask_output
+            ),
+            "document_mask": str(
+                mask_path
+            ),
             "is_tampered": 0,
             "tamper_type": "none",
             "x1": -1,
@@ -310,76 +632,90 @@ for index, source_path in enumerate(selected_images):
     )
 
 
-    # -----------------------------------------------------
-    # 2. Pick random manipulation
-    # -----------------------------------------------------
-
     tamper_type = random.choice(
-        tamper_functions
+        tamper_types
     )
 
 
-    if tamper_type == "copy_move":
+    if tamper_type == "local_blur":
 
-        tampered, mask, bbox = copy_move(
-            image
-        )
-
-
-    elif tamper_type == "local_blur":
-
-        tampered, mask, bbox = local_blur(
-            image
+        tampered, mask, bbox = (
+            local_blur(
+                image,
+                document_mask
+            )
         )
 
 
     elif tamper_type == "local_brightness":
 
-        tampered, mask, bbox = local_brightness(
-            image
+        tampered, mask, bbox = (
+            local_brightness(
+                image,
+                document_mask
+            )
+        )
+
+
+    elif tamper_type == "copy_move":
+
+        tampered, mask, bbox = (
+            copy_move(
+                image,
+                document_mask
+            )
         )
 
 
     elif tamper_type == "patch_replace":
 
-        donor_candidates = [
-            p
-            for p in image_paths
-            if p != source_path
-        ]
-
-        donor_path = random.choice(
-            donor_candidates
-        )
+        donor_row = metadata.sample(
+            n=1
+        ).iloc[0]
 
         donor_image = load_image(
-            donor_path
+            Path(
+                donor_row[
+                    "processed_path"
+                ]
+            )
         )
 
-        tampered, mask, bbox = patch_replace(
-            image,
-            donor_image
+        tampered, mask, bbox = (
+            patch_replace(
+                image,
+                donor_image,
+                document_mask
+            )
         )
 
 
     else:
 
         raise ValueError(
-            f"Unknown tamper type: {tamper_type}"
+            f"Unknown tamper type: "
+            f"{tamper_type}"
         )
 
 
-    # -----------------------------------------------------
-    # 3. Save manipulated image + mask
-    # -----------------------------------------------------
+    tampered_name = (
+        f"tampered_{index:04d}.png"
+    )
 
-    tampered_name = f"tampered_{index:04d}.png"
+    tampered_mask_name = (
+        f"tampered_{index:04d}_mask.png"
+    )
 
-    mask_name = f"tampered_{index:04d}_mask.png"
 
-    tampered_output = OUTPUT_IMAGES / tampered_name
+    tampered_output = (
+        OUTPUT_IMAGES
+        / tampered_name
+    )
 
-    mask_output = OUTPUT_MASKS / mask_name
+    tampered_mask_output = (
+        OUTPUT_MASKS
+        / tampered_mask_name
+    )
 
 
     cv2.imwrite(
@@ -387,8 +723,9 @@ for index, source_path in enumerate(selected_images):
         tampered
     )
 
+
     cv2.imwrite(
-        str(mask_output),
+        str(tampered_mask_output),
         mask
     )
 
@@ -398,10 +735,24 @@ for index, source_path in enumerate(selected_images):
 
     records.append(
         {
-            "sample_id": f"tampered_{index:04d}",
-            "source_image": str(source_path),
-            "output_image": str(tampered_output),
-            "mask_path": str(mask_output),
+            "sample_id": (
+                f"tampered_{index:04d}"
+            ),
+            "source_sample_id": (
+                row["sample_id"]
+            ),
+            "source_image": str(
+                image_path
+            ),
+            "output_image": str(
+                tampered_output
+            ),
+            "mask_path": str(
+                tampered_mask_output
+            ),
+            "document_mask": str(
+                mask_path
+            ),
             "is_tampered": 1,
             "tamper_type": tamper_type,
             "x1": x1,
@@ -412,60 +763,51 @@ for index, source_path in enumerate(selected_images):
     )
 
 
-# ---------------------------------------------------------
-# Save metadata
-# ---------------------------------------------------------
+output_metadata = pd.DataFrame(
+    records
+)
 
-metadata = pd.DataFrame(records)
 
-metadata_path = OUTPUT_ROOT / "metadata.csv"
+metadata_path = (
+    OUTPUT_ROOT / "metadata.csv"
+)
 
-metadata.to_csv(
+
+output_metadata.to_csv(
     metadata_path,
     index=False
 )
 
 
-# ---------------------------------------------------------
-# Summary
-# ---------------------------------------------------------
-
 print("\n----------------------------------")
-print("TAMPERING GENERATION COMPLETE")
+print("DOCUMENT-AWARE TAMPERING COMPLETE")
 print("----------------------------------")
 
 print(
-    f"Source images used: "
-    f"{len(selected_images)}"
+    f"Source images: "
+    f"{len(selected)}"
 )
 
 print(
-    f"Total generated samples: "
-    f"{len(metadata)}"
+    f"Generated samples: "
+    f"{len(output_metadata)}"
 )
 
 print(
-    f"Images saved to: "
-    f"{OUTPUT_IMAGES}"
-)
-
-print(
-    f"Masks saved to: "
-    f"{OUTPUT_MASKS}"
-)
-
-print(
-    f"Metadata saved to: "
+    f"Metadata: "
     f"{metadata_path}"
 )
 
-
-print("\nTampering types:")
+print("\nTampering breakdown:")
 
 print(
-    metadata[
-        metadata["is_tampered"] == 1
-    ]["tamper_type"]
+    output_metadata[
+        output_metadata[
+            "is_tampered"
+        ] == 1
+    ][
+        "tamper_type"
+    ]
     .value_counts()
     .to_string()
 )

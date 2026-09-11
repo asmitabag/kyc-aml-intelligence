@@ -1,0 +1,43 @@
+{
+  "type": "object",
+  "required": [
+    "case_id",
+    "aml_risk",
+    "suspected_typology",
+    "suspicious_transaction_ids",
+    "suspicious_account_ids",
+    "explanation_subgraph",
+    "graph_features"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string"
+    },
+    "aml_risk": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "suspected_typology": {
+      "type": "string"
+    },
+    "suspicious_transaction_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "suspicious_account_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "explanation_subgraph": {
+      "type": "object"
+    },
+    "graph_features": {
+      "type": "object"
+    }
+  }
+}

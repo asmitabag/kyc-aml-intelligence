@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "required": [
+    "case_id",
+    "sar_draft",
+    "evidence_ids_used",
+    "validation_status",
+    "unsupported_claims"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string"
+    },
+    "sar_draft": {
+      "type": "string"
+    },
+    "evidence_ids_used": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validation_status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL"]
+    },
+    "unsupported_claims": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

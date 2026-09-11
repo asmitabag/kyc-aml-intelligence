@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "required": [
+    "customer_id",
+    "document_tamper_probability",
+    "liveness_probability",
+    "deepfake_probability",
+    "kyc_risk",
+    "document_fingerprint",
+    "evidence_ids"
+  ],
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "document_tamper_probability": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "liveness_probability": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "deepfake_probability": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "kyc_risk": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "document_fingerprint": {
+      "type": "string"
+    },
+    "tamper_mask_path": {
+      "type": ["string", "null"]
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

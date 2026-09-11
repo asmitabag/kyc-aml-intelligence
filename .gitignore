@@ -1,6 +1,20 @@
-.venv/
 __pycache__/
-*.pyc
+*.py[cod]
+
+.env
+.env.*
+!.env.example
+
+.venv/
+venv/
+
+*.log
+.pytest_cache/
+.mypy_cache/
+
+.vscode/
+.idea/
+.DS_Store
 
 data/raw/
 data/processed/
@@ -8,8 +22,3 @@ data/processed/
 *.pt
 *.pth
 *.ckpt
-
-.vscode/
-.DS_Store
-
-.env

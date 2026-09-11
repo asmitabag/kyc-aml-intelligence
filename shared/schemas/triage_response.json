@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "required": [
+    "case_id",
+    "fused_risk",
+    "uncertainty",
+    "priority",
+    "human_review_required",
+    "shap_features",
+    "graph_explanation"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string"
+    },
+    "fused_risk": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "uncertainty": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH"]
+    },
+    "human_review_required": {
+      "type": "boolean"
+    },
+    "shap_features": {
+      "type": "array"
+    },
+    "graph_explanation": {
+      "type": "object"
+    }
+  }
+}

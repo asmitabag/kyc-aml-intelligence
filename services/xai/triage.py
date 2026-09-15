@@ -1,6 +1,13 @@
 from shared.schemas.aml import AMLResponse
 from shared.schemas.kyc import KYCResponse
 from shared.schemas.triage import TriageResponse
+# from services.xai.explanation import generate_feature_explanations
+from services.xai.shap_explainer import explain_risk
+
+from services.xai.uncertainty import (
+    calculate_uncertainty,
+    requires_human_review
+)
 
 
 def calculate_fused_risk(kyc_risk: float, aml_risk: float) -> float:
@@ -18,7 +25,6 @@ def determine_priority(fused_risk: float) -> str:
 def calculate_uncertainty(kyc_risk: float, aml_risk: float) -> float:
     return round(abs(kyc_risk - aml_risk), 4)
 
-
 def create_triage(
     kyc: KYCResponse,
     aml: AMLResponse
@@ -31,7 +37,22 @@ def create_triage(
 
     priority = determine_priority(fused_risk)
 
+    # uncertainty = calculate_uncertainty(
+    #     kyc.kyc_risk,
+    #     aml.aml_risk
+    # )
+
     uncertainty = calculate_uncertainty(
+    kyc.kyc_risk,
+    aml.aml_risk
+)
+
+    human_review = requires_human_review(
+        fused_risk,
+        uncertainty
+    )
+
+    explanations = explain_risk(
         kyc.kyc_risk,
         aml.aml_risk
     )
@@ -41,7 +62,7 @@ def create_triage(
         fused_risk=fused_risk,
         uncertainty=uncertainty,
         priority=priority,
-        human_review_required=priority == "HIGH",
-        shap_features=[],
+        human_review_required=human_review,
+        shap_features=explanations,
         graph_explanation=aml.explanation_subgraph
     )

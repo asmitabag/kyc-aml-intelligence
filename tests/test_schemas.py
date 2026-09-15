@@ -40,7 +40,11 @@ def test_triage_schema():
         priority="HIGH",
         human_review_required=True,
         shap_features=[],
-        graph_explanation={}
+        graph_explanation={
+            "nodes": [],
+            "edges": [],
+            "important_features": []
+        }
     )
 
     assert data.human_review_required is True

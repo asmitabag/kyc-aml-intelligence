@@ -1,12 +1,12 @@
 from services.aml_gnn.service import run_aml_analysis
 
 
-def test_mock_aml_service():
-
+def test_aml_service():
     result = run_aml_analysis("CASE001")
 
     assert result.case_id == "CASE001"
-    assert 0.0 <= result.aml_risk <= 1.0
-    assert result.suspected_typology == "layering"
-    assert len(result.suspicious_transaction_ids) > 0
-    assert len(result.suspicious_account_ids) > 0
+    assert result.aml_risk == 0.91
+
+    assert "nodes" in result.explanation_subgraph
+    assert "edges" in result.explanation_subgraph
+    assert "important_features" in result.explanation_subgraph

@@ -5,8 +5,8 @@ from shared.schemas.kyc import KYCResponse
 from shared.schemas.sar import SARResponse
 from shared.schemas.triage import TriageResponse
 from services.aml_gnn.service import run_aml_analysis
-
 from services.xai.triage import create_triage
+from services.xai.orchestrator import run_case_triage
 
 
 app = FastAPI(
@@ -47,3 +47,7 @@ def triage(kyc: KYCResponse, aml: AMLResponse):
 @app.post("/aml/{case_id}", response_model=AMLResponse)
 def aml_analysis(case_id: str):
     return run_aml_analysis(case_id)
+
+@app.post("/triage/{case_id}", response_model=TriageResponse)
+def triage_case(case_id: str, kyc: KYCResponse):
+    return run_case_triage(case_id, kyc)

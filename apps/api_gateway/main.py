@@ -4,6 +4,7 @@ from shared.schemas.aml import AMLResponse
 from shared.schemas.kyc import KYCResponse
 from shared.schemas.sar import SARResponse
 from shared.schemas.triage import TriageResponse
+from services.aml_gnn.service import run_aml_analysis
 
 from services.xai.triage import create_triage
 
@@ -42,3 +43,7 @@ def test_sar(data: SARResponse):
 @app.post("/triage", response_model=TriageResponse)
 def triage(kyc: KYCResponse, aml: AMLResponse):
     return create_triage(kyc, aml)
+
+@app.post("/aml/{case_id}", response_model=AMLResponse)
+def aml_analysis(case_id: str):
+    return run_aml_analysis(case_id)

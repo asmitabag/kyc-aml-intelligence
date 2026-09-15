@@ -1,4 +1,18 @@
-from sqlalchemy import Column, String, Float, Boolean, JSON
+from datetime import datetime
+
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Float,
+    Boolean,
+    Text,
+    DateTime,
+    ForeignKey,
+    JSON
+)
+from sqlalchemy.orm import relationship
+
 from apps.api_gateway.database import Base
 
 
@@ -25,3 +39,32 @@ class Case(Base):
     graph_explanation = Column(JSON, nullable=True)
 
     status = Column(String, default="OPEN")
+
+    feedback = relationship(
+        "CaseFeedback",
+        back_populates="case",
+        cascade="all, delete-orphan"
+    )
+
+class CaseFeedback(Base):
+    __tablename__ = "case_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    case_id = Column(
+        String,
+        ForeignKey("cases.case_id"),
+        nullable=False
+    )
+
+    analyst_decision = Column(String, nullable=False)
+
+    comment = Column(Text, nullable=True)
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    case = relationship("Case", back_populates="feedback")

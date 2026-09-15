@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from services.cases.models import Case
+from services.cases.models import Case, CaseFeedback
 from shared.schemas.triage import TriageResponse
 from shared.schemas.kyc import KYCResponse
 from shared.schemas.aml import AMLResponse
@@ -74,8 +74,13 @@ def add_case_feedback(
     if case is None:
         return None
 
-    case.status = analyst_decision
+    feedback = CaseFeedback(
+        case_id=case_id,
+        analyst_decision=analyst_decision,
+        comment=comment
+    )
 
+    db.add(feedback)
     db.commit()
     db.refresh(case)
 

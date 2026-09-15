@@ -16,7 +16,7 @@ metadata = pd.read_csv(
 
 
 # Pick the first example
-row = metadata.iloc[750]
+row = metadata.iloc[1300]
 
 
 image = cv2.imread(

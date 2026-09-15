@@ -17,8 +17,10 @@ DOCUMENT_TYPES = [
     "01_alb_id",
     "02_aut_drvlic_new",
     "03_aut_id_old",
+    "04_aut_id",
+    "05_aze_passport",
+    "06_bra_passport",
 ]
-
 
 # ---------------------------------------------------------
 # Create output directories

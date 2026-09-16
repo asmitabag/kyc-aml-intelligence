@@ -69,7 +69,12 @@ const navItems = [
   { label: "KYC Review", icon: ShieldCheck, disabled: true, note: "Soon" },
   { label: "AML Network", icon: Network, disabled: true, note: "Soon" },
   { label: "Analytics", icon: Gauge, disabled: true, note: "Soon" },
-  { label: "SAR Review", icon: ClipboardCheck, disabled: true, note: "From case" },
+  {
+    label: "SAR Review",
+    icon: ClipboardCheck,
+    disabled: true,
+    note: "From case",
+  },
 ];
 
 const formatRisk = (value: number | null | undefined) =>
@@ -136,7 +141,15 @@ function AppShell() {
           {navItems.map((item) => {
             const Icon = item.icon;
             return item.disabled ? (
-              <div className="nav-item disabled" key={item.label} title={item.note === "From case" ? "Open SAR Review from a case detail page" : "This workspace is not available yet"}>
+              <div
+                className="nav-item disabled"
+                key={item.label}
+                title={
+                  item.note === "From case"
+                    ? "Open SAR Review from a case detail page"
+                    : "This workspace is not available yet"
+                }
+              >
                 <Icon size={18} />
                 <span>{item.label}</span>
                 <small>{item.note}</small>

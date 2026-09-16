@@ -1,5 +1,6 @@
 import type { CaseRecord, CaseStatus, FeedbackPayload } from "../types/case";
 import type { KYCResponse } from "../types/kyc";
+import type { SARResponse } from "../types/sar";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "/api";
 
@@ -54,5 +55,11 @@ export function submitCaseFeedback(
   return request<CaseRecord>(`/cases/${encodeURIComponent(caseId)}/feedback`, {
     method: "POST",
     body: JSON.stringify(feedback),
+  });
+}
+
+export function generateSAR(caseId: string): Promise<SARResponse> {
+  return request<SARResponse>(`/cases/${encodeURIComponent(caseId)}/sar`, {
+    method: "POST",
   });
 }

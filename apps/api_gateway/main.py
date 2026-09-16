@@ -25,6 +25,9 @@ from services.cases.service import (
     add_case_feedback
 )
 
+from services.sar.service import generate_sar
+from shared.schemas.sar import SARResponse
+
 
 app = FastAPI(
     title="KYC-AML Intelligence Platform",
@@ -173,3 +176,14 @@ def submit_feedback(
         )
 
     return case
+
+@app.post("/cases/{case_id}/sar", response_model=SARResponse)
+def generate_case_sar(case_id: str, db: Session = Depends(get_db)):
+    case = get_case(db, case_id)
+
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    case_response = CaseResponse.model_validate(case)
+
+    return generate_sar(case_response)

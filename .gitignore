@@ -22,3 +22,5 @@ data/processed/
 *.pt
 *.pth
 *.ckpt
+
+node_modules

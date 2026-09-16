@@ -1,0 +1,6 @@
+{
+    "tamper_fraction_threshold": 0.0022258758544921875,
+    "pixel_probability_threshold": 0.5,
+    "validation_f1": 0.8482632541133455,
+    "validation_accuracy": 0.8616666666666667
+}

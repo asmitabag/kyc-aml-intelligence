@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 
 import numpy as np
 import torch
@@ -37,12 +37,12 @@ class AccountGNNAdapter:
 
     def __init__(
         self,
-        artifact_dir: str | Path = DEFAULT_ARTIFACT_DIR,
+        artifact_dir: Union[str, Path] = DEFAULT_ARTIFACT_DIR,
     ) -> None:
         self.artifact_dir = Path(artifact_dir)
-        self.model: AccountGNN | None = None
-        self.metadata: dict[str, Any] | None = None
-        self.load_error: str | None = None
+        self.model: Optional[AccountGNN] = None
+        self.metadata: Optional[dict[str, Any]] = None
+        self.load_error: Optional[str] = None
         self._load()
 
     def _load(self) -> None:

@@ -1,23 +1,24 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 
 RUNTIME_CONTRACT_VERSION = "aml-runtime.v1"
+
 
 @dataclass(frozen=True)
 class GraphNode:
     node_id: str
     node_type: str
-    account_type: str | None = None
-    currency: str | None = None
+    account_type: Optional[str] = None
+    currency: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class GraphEdge:
     transaction_id: str
     source_account_id: str
-    target_account_id: str | None
+    target_account_id: Optional[str]
     amount: float
     currency: str
     timestamp: datetime

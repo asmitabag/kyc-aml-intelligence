@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 from services.model_adapters.contracts import InferenceResult, ModelStatus
 
@@ -10,7 +11,7 @@ class RiskComponent:
     weight: float
 
 
-def fuse_available_scores(components: list[RiskComponent]) -> float | None:
+def fuse_available_scores(components: list[RiskComponent]) -> Optional[float]:
     """Return a normalized weighted score from available components only.
 
     Missing or unavailable components are excluded and their weights are

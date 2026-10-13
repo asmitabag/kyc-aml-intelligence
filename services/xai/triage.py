@@ -1,3 +1,5 @@
+from typing import Optional
+
 from shared.schemas.aml import AMLResponse
 from shared.schemas.kyc import KYCResponse
 from shared.schemas.triage import TriageResponse
@@ -6,7 +8,7 @@ from services.xai.shap_explainer import explain_risk
 
 from services.xai.uncertainty import (
     calculate_uncertainty,
-    requires_human_review
+    requires_human_review,
 )
 from services.model_adapters.contracts import InferenceResult
 from services.model_adapters.risk import RiskComponent, fuse_available_scores
@@ -19,7 +21,7 @@ def calculate_fused_risk(kyc_risk: float, aml_risk: float) -> float:
 def fuse_component_scores(
     kyc_result: InferenceResult[object],
     aml_result: InferenceResult[object],
-) -> float | None:
+) -> Optional[float]:
     return fuse_available_scores(
         [
             RiskComponent("kyc", kyc_result, 0.4),
@@ -28,7 +30,7 @@ def fuse_component_scores(
     )
 
 
-def alert_required(score: float | None, threshold: float = 0.8) -> bool:
+def alert_required(score: Optional[float], threshold: float = 0.8) -> bool:
     """Return whether a valid fused score reaches the inclusive threshold."""
 
     if not 0.0 <= threshold <= 1.0:
@@ -47,36 +49,31 @@ def determine_priority(fused_risk: float) -> str:
 def calculate_uncertainty(kyc_risk: float, aml_risk: float) -> float:
     return round(abs(kyc_risk - aml_risk), 4)
 
+
 def create_triage(
     kyc: KYCResponse,
-    aml: AMLResponse
+    aml: AMLResponse,
 ) -> TriageResponse:
-
     fused_risk = calculate_fused_risk(
         kyc.kyc_risk,
-        aml.aml_risk
+        aml.aml_risk,
     )
 
     priority = determine_priority(fused_risk)
 
-    # uncertainty = calculate_uncertainty(
-    #     kyc.kyc_risk,
-    #     aml.aml_risk
-    # )
-
     uncertainty = calculate_uncertainty(
-    kyc.kyc_risk,
-    aml.aml_risk
-)
+        kyc.kyc_risk,
+        aml.aml_risk,
+    )
 
     human_review = requires_human_review(
         fused_risk,
-        uncertainty
+        uncertainty,
     )
 
     explanations = explain_risk(
         kyc.kyc_risk,
-        aml.aml_risk
+        aml.aml_risk,
     )
 
     return TriageResponse(
@@ -86,5 +83,5 @@ def create_triage(
         priority=priority,
         human_review_required=human_review,
         shap_features=explanations,
-        graph_explanation=aml.explanation_subgraph
+        graph_explanation=aml.explanation_subgraph,
     )

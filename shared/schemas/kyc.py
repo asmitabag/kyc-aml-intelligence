@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -12,6 +14,6 @@ class KYCResponse(BaseModel):
 
     document_fingerprint: str
 
-    tamper_mask_path: str | None = None
+    tamper_mask_path: Optional[str] = None
 
     evidence_ids: list[str]

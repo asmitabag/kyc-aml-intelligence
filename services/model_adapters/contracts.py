@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Optional, TypeVar
 
 
 OutputT = TypeVar("OutputT")
@@ -22,11 +22,11 @@ class InferenceResult(Generic[OutputT]):
 
     model_name: str
     status: ModelStatus
-    score: float | None = None
-    output: OutputT | None = None
-    model_version: str | None = None
-    explanation: dict[str, Any] | None = None
-    error: str | None = None
+    score: Optional[float] = None
+    output: Optional[OutputT] = None
+    model_version: Optional[str] = None
+    explanation: Optional[dict[str, Any]] = None
+    error: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.score is not None and not 0.0 <= self.score <= 1.0:

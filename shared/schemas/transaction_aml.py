@@ -1,7 +1,9 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TransactionAMLRequest(BaseModel):
@@ -35,9 +37,9 @@ class TransactionAMLRequest(BaseModel):
 
 class TransactionAMLResponse(BaseModel):
     model_name: str
-    model_version: str | None = None
+    model_version: Optional[str] = None
     status: str
-    ranking_score: float | None = None
-    feature_count: int | None = None
-    interpretation: str | None = None
-    error: str | None = None
+    ranking_score: Optional[float] = None
+    feature_count: Optional[int] = None
+    interpretation: Optional[str] = None
+    error: Optional[str] = None

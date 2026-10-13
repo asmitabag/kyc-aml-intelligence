@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 from shared.schemas.aml import AMLResponse
 from services.model_adapters.contracts import InferenceResult
@@ -6,8 +6,8 @@ from services.model_adapters.gnn import GNNAdapter, UnavailableGNNAdapter
 
 
 def run_aml_analysis(
-    graph: dict[str, Any] | None = None,
-    adapter: GNNAdapter | None = None,
+    graph: Optional[dict[str, Any]] = None,
+    adapter: Optional[GNNAdapter] = None,
 ) -> InferenceResult[AMLResponse]:
     """Run the configured GNN adapter without fabricating a prediction.
 

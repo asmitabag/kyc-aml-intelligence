@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -13,36 +14,30 @@ from services.cases.models import (
     SARDraft,
     Transaction,
 )
-from shared.schemas.triage import TriageResponse
-from shared.schemas.kyc import KYCResponse
 from shared.schemas.aml import AMLResponse
+from shared.schemas.kyc import KYCResponse
+from shared.schemas.triage import TriageResponse
 
 
 def create_case(
     db: Session,
     kyc: KYCResponse,
     aml: AMLResponse,
-    triage: TriageResponse
+    triage: TriageResponse,
 ):
     case = Case(
         case_id=triage.case_id,
         customer_id=kyc.customer_id,
-
         kyc_risk=kyc.kyc_risk,
         aml_risk=aml.aml_risk,
         fused_risk=triage.fused_risk,
-
         uncertainty=triage.uncertainty,
         priority=triage.priority,
-
         human_review_required=triage.human_review_required,
-
         suspected_typology=aml.suspected_typology,
-
         shap_features=triage.shap_features,
         graph_explanation=triage.graph_explanation.model_dump(),
-
-        status="OPEN"
+        status="OPEN",
     )
 
     db.add(case)
@@ -63,7 +58,7 @@ def get_case(db: Session, case_id: str):
 def update_case_status(
     db: Session,
     case_id: str,
-    status: str
+    status: str,
 ):
     case = get_case(db, case_id)
 
@@ -82,7 +77,7 @@ def add_case_feedback(
     db: Session,
     case_id: str,
     analyst_decision: str,
-    comment: str | None = None
+    comment: Optional[str] = None,
 ):
     case = get_case(db, case_id)
 
@@ -92,7 +87,7 @@ def add_case_feedback(
     feedback = CaseFeedback(
         case_id=case_id,
         analyst_decision=analyst_decision,
-        comment=comment
+        comment=comment,
     )
 
     db.add(feedback)
@@ -102,7 +97,15 @@ def add_case_feedback(
     return case
 
 
-def create_customer(db: Session, customer_id: str, full_name: str, email: str | None = None, phone: str | None = None, customer_type: str = "INDIVIDUAL", data_origin: str = "CONSENTED_DEMO"):
+def create_customer(
+    db: Session,
+    customer_id: str,
+    full_name: str,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    customer_type: str = "INDIVIDUAL",
+    data_origin: str = "CONSENTED_DEMO",
+):
     existing = db.query(Customer).filter(Customer.customer_id == customer_id).first()
     if existing:
         return existing
@@ -127,7 +130,15 @@ def get_customer(db: Session, customer_id: str):
     return db.query(Customer).filter(Customer.customer_id == customer_id).first()
 
 
-def create_account(db: Session, account_id: str, customer_id: str, account_type: str = "CHECKING", status: str = "ACTIVE", balance: float = 0.0, currency: str = "USD"):
+def create_account(
+    db: Session,
+    account_id: str,
+    customer_id: str,
+    account_type: str = "CHECKING",
+    status: str = "ACTIVE",
+    balance: float = 0.0,
+    currency: str = "USD",
+):
     customer = get_customer(db, customer_id)
     if customer is None:
         raise ValueError("Customer not found")
@@ -146,7 +157,19 @@ def create_account(db: Session, account_id: str, customer_id: str, account_type:
     return account
 
 
-def create_transaction(db: Session, transaction_id: str, account_id: str, direction: str, amount: float, description: str | None = None, counterparty: str | None = None, currency: str = "USD", status: str = "COMPLETED", to_account_id: str | None = None, data_origin: str = "SYNTHETIC"):
+def create_transaction(
+    db: Session,
+    transaction_id: str,
+    account_id: str,
+    direction: str,
+    amount: float,
+    description: Optional[str] = None,
+    counterparty: Optional[str] = None,
+    currency: str = "USD",
+    status: str = "COMPLETED",
+    to_account_id: Optional[str] = None,
+    data_origin: str = "SYNTHETIC",
+):
     account = db.query(Account).filter(Account.account_id == account_id).first()
     if account is None:
         raise ValueError("Account not found")
@@ -171,7 +194,26 @@ def create_transaction(db: Session, transaction_id: str, account_id: str, direct
     return transaction
 
 
-def create_risk_assessment(db: Session, assessment_id: str, customer_id: str, kyc_risk: float, aml_risk: float, fused_risk: float, uncertainty: float | None = None, priority: str | None = None, human_review_required: bool = False, suspected_typology: str | None = None, case_id: str | None = None, gnn_risk: float | None = None, xgboost_risk: float | None = None, final_risk: float | None = None, risk_level: str | None = None, top_risk_factors: list[str] | None = None, gnn_model_version: str | None = None, xgboost_model_version: str | None = None):
+def create_risk_assessment(
+    db: Session,
+    assessment_id: str,
+    customer_id: str,
+    kyc_risk: float,
+    aml_risk: float,
+    fused_risk: float,
+    uncertainty: Optional[float] = None,
+    priority: Optional[str] = None,
+    human_review_required: bool = False,
+    suspected_typology: Optional[str] = None,
+    case_id: Optional[str] = None,
+    gnn_risk: Optional[float] = None,
+    xgboost_risk: Optional[float] = None,
+    final_risk: Optional[float] = None,
+    risk_level: Optional[str] = None,
+    top_risk_factors: Optional[list[str]] = None,
+    gnn_model_version: Optional[str] = None,
+    xgboost_model_version: Optional[str] = None,
+):
     customer = get_customer(db, customer_id)
     if customer is None:
         raise ValueError("Customer not found")
@@ -202,7 +244,19 @@ def create_risk_assessment(db: Session, assessment_id: str, customer_id: str, ky
     return assessment
 
 
-def create_alert(db: Session, alert_id: str, customer_id: str, alert_type: str, severity: str = "MEDIUM", status: str = "OPEN", narrative: str | None = None, account_id: str | None = None, case_id: str | None = None, assessment_id: str | None = None, reason_code: str | None = None):
+def create_alert(
+    db: Session,
+    alert_id: str,
+    customer_id: str,
+    alert_type: str,
+    severity: str = "MEDIUM",
+    status: str = "OPEN",
+    narrative: Optional[str] = None,
+    account_id: Optional[str] = None,
+    case_id: Optional[str] = None,
+    assessment_id: Optional[str] = None,
+    reason_code: Optional[str] = None,
+):
     customer = get_customer(db, customer_id)
     if customer is None:
         raise ValueError("Customer not found")
@@ -225,7 +279,19 @@ def create_alert(db: Session, alert_id: str, customer_id: str, alert_type: str, 
     return alert
 
 
-def create_sar_draft(db: Session, sar_id: str, case_id: str, customer_id: str, narrative: str, evidence_ids_used: list[str] | None = None, fincen_sources_used: list[str] | None = None, validation_status: str = "VALID", unsupported_claims: list[str] | None = None, alert_id: str | None = None, review_status: str = "DRAFT"):
+def create_sar_draft(
+    db: Session,
+    sar_id: str,
+    case_id: str,
+    customer_id: str,
+    narrative: str,
+    evidence_ids_used: Optional[list[str]] = None,
+    fincen_sources_used: Optional[list[str]] = None,
+    validation_status: str = "VALID",
+    unsupported_claims: Optional[list[str]] = None,
+    alert_id: Optional[str] = None,
+    review_status: str = "DRAFT",
+):
     sar = SARDraft(
         sar_id=sar_id,
         case_id=case_id,
@@ -252,7 +318,13 @@ def get_alert(db: Session, alert_id: str):
     return db.query(Alert).filter(Alert.alert_id == alert_id).first()
 
 
-def update_alert(db: Session, alert_id: str, status: str | None = None, severity: str | None = None, narrative: str | None = None):
+def update_alert(
+    db: Session,
+    alert_id: str,
+    status: Optional[str] = None,
+    severity: Optional[str] = None,
+    narrative: Optional[str] = None,
+):
     alert = get_alert(db, alert_id)
     if alert is None:
         return None

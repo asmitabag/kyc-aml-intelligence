@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -33,19 +33,19 @@ class AMLAnalysisResult:
     status: str
     customer_id: str
     message: str
-    assessment_id: str | None = None
-    alert_id: str | None = None
-    fused_risk: float | None = None
-    model_statuses: dict[str, str] | None = None
-    model_versions: dict[str, str | None] | None = None
-    explanations: dict[str, Any] | None = None
+    assessment_id: Optional[str] = None
+    alert_id: Optional[str] = None
+    fused_risk: Optional[float] = None
+    model_statuses: Optional[dict[str, str]] = None
+    model_versions: Optional[dict[str, Optional[str]]] = None
+    explanations: Optional[dict[str, Any]] = None
 
 
 class AMLRuntimeOrchestrator:
     def __init__(
         self,
-        gnn_adapter: GNNAdapter | None = None,
-        xgboost_adapter: XGBoostAdapter | None = None,
+        gnn_adapter: Optional[GNNAdapter] = None,
+        xgboost_adapter: Optional[XGBoostAdapter] = None,
         alert_threshold: float = ALERT_THRESHOLD,
     ) -> None:
         if not 0.0 <= alert_threshold <= 1.0:
@@ -231,7 +231,7 @@ class AMLRuntimeOrchestrator:
         customer_id: str,
         account_ids: set[str],
         transactions: list[models.Transaction],
-        accounts: list[models.Account] | None = None,
+        accounts: Optional[list[models.Account]] = None,
     ) -> GNNRuntimeInput:
         account_lookup = {
             account.account_id: account

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -16,7 +18,7 @@ class UserResponse(BaseModel):
     id: int
     email: str
     role: str
-    customer_id: str | None = None
+    customer_id: Optional[str] = None
 
 
 class AuthResponse(BaseModel):

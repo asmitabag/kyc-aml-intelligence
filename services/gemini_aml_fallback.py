@@ -1,10 +1,13 @@
 ﻿import os
-from typing import Any
-
-from google import genai
-
 from pathlib import Path
+from typing import Any, Optional
+
 from dotenv import load_dotenv
+
+try:
+    from google import genai  # type: ignore
+except ImportError:  # pragma: no cover - fallback for missing package
+    genai = None
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -14,10 +17,10 @@ class GeminiAMLExplanationFallback:
 
     def __init__(self) -> None:
         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        self.client = genai.Client(api_key=api_key) if api_key else None
+        self.client = genai.Client(api_key=api_key) if api_key and genai is not None else None
         self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
-    def explain(self, evidence: dict[str, Any]) -> str | None:
+    def explain(self, evidence: dict[str, Any]) -> Optional[str]:
         if self.client is None:
             return None
 

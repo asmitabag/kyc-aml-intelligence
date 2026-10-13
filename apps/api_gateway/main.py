@@ -1,9 +1,9 @@
+import os
 from datetime import datetime
+from typing import Optional
 from uuid import uuid4
 
-import os
-
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -116,14 +116,14 @@ class CustomerOut(BaseModel):
 
     customer_id: str
     full_name: str
-    email: str | None = None
-    phone: str | None = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
     customer_type: str = "INDIVIDUAL"
     data_origin: str = "CONSENTED_DEMO"
     kyc_status: str = "PENDING"
     onboarding_status: str = "IN_PROGRESS"
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class AccountOut(BaseModel):
@@ -135,8 +135,8 @@ class AccountOut(BaseModel):
     status: str = "ACTIVE"
     balance: float = 0.0
     currency: str = "USD"
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class KYCOut(BaseModel):
@@ -152,7 +152,7 @@ class KYCOut(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
     model_version: str
     status: str
-    created_at: datetime | None = None
+    created_at: Optional[datetime] = None
 
 
 class TransactionOut(BaseModel):
@@ -160,14 +160,14 @@ class TransactionOut(BaseModel):
 
     transaction_id: str
     account_id: str
-    to_account_id: str | None = None
+    to_account_id: Optional[str] = None
     direction: str
     amount: float
     currency: str = "USD"
-    description: str | None = None
-    counterparty: str | None = None
+    description: Optional[str] = None
+    counterparty: Optional[str] = None
     status: str = "COMPLETED"
-    occurred_at: datetime | None = None
+    occurred_at: Optional[datetime] = None
     data_origin: str = "SYNTHETIC"
 
 
@@ -176,23 +176,23 @@ class RiskAssessmentOut(BaseModel):
 
     assessment_id: str
     customer_id: str
-    case_id: str | None = None
+    case_id: Optional[str] = None
     kyc_risk: float
     aml_risk: float
     fused_risk: float
-    gnn_risk: float | None = None
-    xgboost_risk: float | None = None
-    final_risk: float | None = None
-    risk_level: str | None = None
-    top_risk_factors: list[str] | None = None
-    gnn_model_version: str | None = None
-    xgboost_model_version: str | None = None
-    uncertainty: float | None = None
-    priority: str | None = None
+    gnn_risk: Optional[float] = None
+    xgboost_risk: Optional[float] = None
+    final_risk: Optional[float] = None
+    risk_level: Optional[str] = None
+    top_risk_factors: Optional[list[str]] = None
+    gnn_model_version: Optional[str] = None
+    xgboost_model_version: Optional[str] = None
+    uncertainty: Optional[float] = None
+    priority: Optional[str] = None
     human_review_required: bool = False
-    suspected_typology: str | None = None
+    suspected_typology: Optional[str] = None
     status: str = "OPEN"
-    created_at: datetime | None = None
+    created_at: Optional[datetime] = None
 
 
 class AlertOut(BaseModel):
@@ -200,44 +200,44 @@ class AlertOut(BaseModel):
 
     alert_id: str
     customer_id: str
-    account_id: str | None = None
-    case_id: str | None = None
-    assessment_id: str | None = None
-    reason_code: str | None = None
+    account_id: Optional[str] = None
+    case_id: Optional[str] = None
+    assessment_id: Optional[str] = None
+    reason_code: Optional[str] = None
     alert_type: str
     severity: str = "MEDIUM"
     status: str = "OPEN"
-    narrative: str | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    narrative: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class SARDraftOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     sar_id: str
-    case_id: str | None = None
-    customer_id: str | None = None
-    alert_id: str | None = None
+    case_id: Optional[str] = None
+    customer_id: Optional[str] = None
+    alert_id: Optional[str] = None
     narrative: str
     evidence_ids_used: list[str] = Field(default_factory=list)
     fincen_sources_used: list[str] = Field(default_factory=list)
     validation_status: str = "VALID"
     review_status: str = "DRAFT"
     unsupported_claims: list[str] = Field(default_factory=list)
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class AMLAnalysisOut(BaseModel):
     status: str
     customer_id: str
     message: str
-    assessment_id: str | None = None
-    alert_id: str | None = None
-    fused_risk: float | None = None
+    assessment_id: Optional[str] = None
+    alert_id: Optional[str] = None
+    fused_risk: Optional[float] = None
     model_statuses: dict[str, str] = Field(default_factory=dict)
-    model_versions: dict[str, str | None] = Field(default_factory=dict)
+    model_versions: dict[str, Optional[str]] = Field(default_factory=dict)
     explanations: dict[str, object] = Field(default_factory=dict)
 
 

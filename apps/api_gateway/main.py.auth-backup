@@ -1,0 +1,877 @@
+from datetime import datetime
+from uuid import uuid4
+
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
+
+from shared.schemas.aml import AMLResponse
+from shared.schemas.kyc import KYCResponse
+from shared.schemas.sar import SARResponse
+from shared.schemas.triage import TriageResponse
+from shared.schemas.case import (
+    CaseResponse,
+    CaseStatusUpdate,
+    CaseFeedback,
+)
+
+from services.aml_gnn.service import run_aml_analysis
+from services.aml_runtime import AMLRuntimeOrchestrator
+from services.model_adapters.gnn import UnavailableGNNAdapter
+from services.model_adapters.xgboost import UnavailableXGBoostAdapter
+from services.model_adapters.contracts import ModelStatus
+from services.xai.triage import create_triage
+from services.xai.orchestrator import run_case_triage
+
+from apps.api_gateway.database import get_db, Base, engine
+from apps.api_gateway.migrations import migrate_database
+from services.cases import models
+from services.cases.api_models import (
+    AccountCreate,
+    AlertUpdate,
+    CustomerCreate,
+    RiskAssessmentCreate,
+    TransactionCreate,
+    AlertCreate,
+    KYCSubmit,
+    SARDraftCreate,
+    SARStatusUpdate,
+    FeedbackCreate,
+)
+from services.cases.service import (
+    add_case_feedback,
+    create_account,
+    create_alert,
+    create_case,
+    create_customer,
+    create_risk_assessment,
+    create_sar_draft,
+    create_transaction,
+    get_alert,
+    get_alerts,
+    get_case,
+    get_cases,
+    get_customer,
+    update_alert,
+    update_case_status,
+)
+
+from services.cases.feedback import get_feedback_dataset
+
+from services.sar.service import generate_sar
+
+from shared.schemas.transaction_aml import (
+    TransactionAMLRequest,
+    TransactionAMLResponse,
+)
+from services.model_adapters.trained_xgboost import (
+    TrainedXGBoostAMLAdapter,
+)
+
+from services.auth.security import hash_password, verify_password
+from services.auth.tokens import create_access_token, get_current_user
+from services.auth.schemas import (
+    RegisterRequest,
+    LoginRequest,
+    UserResponse,
+    AuthResponse,
+)
+
+from services.auth.tokens import (
+    create_access_token,
+    get_current_user,
+    require_analyst,
+)
+
+
+aml_runtime = AMLRuntimeOrchestrator()
+
+
+class CustomerOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    customer_id: str
+    full_name: str
+    email: str | None = None
+    phone: str | None = None
+    customer_type: str = "INDIVIDUAL"
+    data_origin: str = "CONSENTED_DEMO"
+    kyc_status: str = "PENDING"
+    onboarding_status: str = "IN_PROGRESS"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class AccountOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    account_id: str
+    customer_id: str
+    account_type: str = "CHECKING"
+    status: str = "ACTIVE"
+    balance: float = 0.0
+    currency: str = "USD"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class KYCOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    kyc_id: str
+    customer_id: str
+    document_tamper_probability: float
+    liveness_probability: float
+    deepfake_probability: float
+    kyc_risk: float
+    document_fingerprint: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    model_version: str
+    status: str
+    created_at: datetime | None = None
+
+
+class TransactionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    transaction_id: str
+    account_id: str
+    to_account_id: str | None = None
+    direction: str
+    amount: float
+    currency: str = "USD"
+    description: str | None = None
+    counterparty: str | None = None
+    status: str = "COMPLETED"
+    occurred_at: datetime | None = None
+    data_origin: str = "SYNTHETIC"
+
+
+class RiskAssessmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    assessment_id: str
+    customer_id: str
+    case_id: str | None = None
+    kyc_risk: float
+    aml_risk: float
+    fused_risk: float
+    gnn_risk: float | None = None
+    xgboost_risk: float | None = None
+    final_risk: float | None = None
+    risk_level: str | None = None
+    top_risk_factors: list[str] | None = None
+    gnn_model_version: str | None = None
+    xgboost_model_version: str | None = None
+    uncertainty: float | None = None
+    priority: str | None = None
+    human_review_required: bool = False
+    suspected_typology: str | None = None
+    status: str = "OPEN"
+    created_at: datetime | None = None
+
+
+class AlertOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    alert_id: str
+    customer_id: str
+    account_id: str | None = None
+    case_id: str | None = None
+    assessment_id: str | None = None
+    reason_code: str | None = None
+    alert_type: str
+    severity: str = "MEDIUM"
+    status: str = "OPEN"
+    narrative: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class SARDraftOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    sar_id: str
+    case_id: str | None = None
+    customer_id: str | None = None
+    alert_id: str | None = None
+    narrative: str
+    evidence_ids_used: list[str] = Field(default_factory=list)
+    fincen_sources_used: list[str] = Field(default_factory=list)
+    validation_status: str = "VALID"
+    review_status: str = "DRAFT"
+    unsupported_claims: list[str] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class AMLAnalysisOut(BaseModel):
+    status: str
+    customer_id: str
+    message: str
+    assessment_id: str | None = None
+    alert_id: str | None = None
+    fused_risk: float | None = None
+    model_statuses: dict[str, str] = Field(default_factory=dict)
+    model_versions: dict[str, str | None] = Field(default_factory=dict)
+    explanations: dict[str, object] = Field(default_factory=dict)
+
+
+app = FastAPI(
+    title="KYC-AML Intelligence Platform",
+    version="0.1.0",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+Base.metadata.create_all(bind=engine)
+migrate_database(engine)
+
+@app.post("/api/v1/auth/register", response_model=AuthResponse, status_code=201)
+def register_user(payload: RegisterRequest, db: Session = Depends(get_db)):
+    email = str(payload.email).strip().lower()
+
+    existing_user = db.query(models.User).filter(
+        models.User.email == email
+    ).first()
+    if existing_user:
+        raise HTTPException(status_code=409, detail="Email is already registered")
+
+    # Do not automatically take over a pre-existing customer profile by email.
+    existing_customer = db.query(models.Customer).filter(
+        models.Customer.email == email
+    ).first()
+    if existing_customer:
+        raise HTTPException(
+            status_code=409,
+            detail="A customer profile with this email already exists",
+        )
+
+    customer_id = f"CUST-{uuid4().hex[:12].upper()}"
+
+    customer = models.Customer(
+        customer_id=customer_id,
+        full_name=payload.full_name.strip(),
+        email=email,
+        customer_type="INDIVIDUAL",
+        data_origin="CONSENTED_DEMO",
+        kyc_status="PENDING",
+        onboarding_status="IN_PROGRESS",
+    )
+    user = models.User(
+        email=email,
+        password_hash=hash_password(payload.password),
+        role="customer",
+        customer_id=customer_id,
+        is_active=True,
+    )
+
+    try:
+        db.add(customer)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Registration failed")
+
+    return AuthResponse(
+        access_token=create_access_token(user),
+        user=UserResponse(
+            id=user.id,
+            email=user.email,
+            role=user.role,
+            customer_id=user.customer_id,
+        ),
+    )
+
+
+@app.post("/api/v1/auth/login", response_model=AuthResponse)
+def login_user(payload: LoginRequest, db: Session = Depends(get_db)):
+    email = str(payload.email).strip().lower()
+    user = db.query(models.User).filter(models.User.email == email).first()
+
+    if (
+        user is None
+        or not user.is_active
+        or not verify_password(payload.password, user.password_hash)
+    ):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    return AuthResponse(
+        access_token=create_access_token(user),
+        user=UserResponse(
+            id=user.id,
+            email=user.email,
+            role=user.role,
+            customer_id=user.customer_id,
+        ),
+    )
+
+
+@app.get("/api/v1/auth/me", response_model=UserResponse)
+def get_my_profile(user: models.User = Depends(get_current_user)):
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        customer_id=user.customer_id,
+    )
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/api/v1/health")
+def api_v1_health():
+    model_statuses = {
+        "gnn": "unavailable"
+        if isinstance(aml_runtime.gnn_adapter, UnavailableGNNAdapter)
+        else "configured",
+        "xgboost": "unavailable"
+        if isinstance(aml_runtime.xgboost_adapter, UnavailableXGBoostAdapter)
+        else "configured",
+    }
+    return {
+        "status": "degraded" if "unavailable" in model_statuses.values() else "ok",
+        "models": model_statuses,
+    }
+
+
+@app.post("/test/kyc", response_model=KYCResponse)
+def test_kyc(data: KYCResponse):
+    return data
+
+
+@app.post("/test/aml", response_model=AMLResponse)
+def test_aml(data: AMLResponse):
+    return data
+
+
+@app.post("/test/triage", response_model=TriageResponse)
+def test_triage(data: TriageResponse):
+    return data
+
+
+@app.post("/test/sar", response_model=SARResponse)
+def test_sar(data: SARResponse):
+    return data
+
+
+@app.post("/triage", response_model=TriageResponse)
+def triage(kyc: KYCResponse, aml: AMLResponse):
+    return create_triage(kyc, aml)
+
+
+@app.post("/aml/{case_id}", response_model=AMLResponse)
+def aml_analysis(case_id: str):
+    result = run_aml_analysis({"case_id": case_id})
+    if result.status is not ModelStatus.AVAILABLE or result.output is None:
+        raise HTTPException(status_code=503, detail=result.error or "AML model unavailable")
+    return result.output
+
+
+@app.post("/triage/{case_id}", response_model=TriageResponse)
+def triage_case(case_id: str, kyc: KYCResponse):
+    return run_case_triage(case_id, kyc)
+
+
+@app.post("/cases", response_model=CaseResponse)
+def create_new_case(
+    kyc: KYCResponse,
+    db: Session = Depends(get_db),
+):
+    aml_result = run_aml_analysis({"case_id": kyc.customer_id})
+    if aml_result.status is not ModelStatus.AVAILABLE or aml_result.output is None:
+        raise HTTPException(status_code=503, detail=aml_result.error or "AML model unavailable")
+    aml = aml_result.output
+    triage = create_triage(kyc, aml)
+    return create_case(db=db, kyc=kyc, aml=aml, triage=triage)
+
+
+@app.get("/cases", response_model=list[CaseResponse])
+def list_cases(db: Session = Depends(get_db)):
+    return get_cases(db)
+
+
+@app.get("/cases/{case_id}", response_model=CaseResponse)
+def get_case_by_id(case_id: str, db: Session = Depends(get_db)):
+    case = get_case(db, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return case
+
+
+@app.patch("/cases/{case_id}/status", response_model=CaseResponse)
+def update_status(case_id: str, data: CaseStatusUpdate, db: Session = Depends(get_db)):
+    case = update_case_status(db, case_id, data.status)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return case
+
+
+@app.post("/cases/{case_id}/feedback", response_model=CaseResponse)
+def submit_feedback(case_id: str, feedback: CaseFeedback, db: Session = Depends(get_db)):
+    case = add_case_feedback(
+        db=db,
+        case_id=case_id,
+        analyst_decision=feedback.analyst_decision,
+        comment=feedback.comment,
+    )
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return case
+
+
+@app.get("/cases/feedback/dataset")
+def feedback_dataset(db: Session = Depends(get_db)):
+    return get_feedback_dataset(db)
+
+
+@app.post("/cases/{case_id}/sar", response_model=SARResponse)
+def generate_case_sar(case_id: str, db: Session = Depends(get_db)):
+    case = get_case(db, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    case_response = CaseResponse.model_validate(case)
+    return generate_sar(case_response)
+
+
+@app.post("/api/v1/customers", response_model=CustomerOut)
+def api_create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
+    customer = create_customer(
+        db=db,
+        customer_id=payload.customer_id or f"CUST-{uuid4().hex[:12].upper()}",
+        full_name=payload.full_name,
+        email=payload.email,
+        phone=payload.phone,
+        customer_type=payload.customer_type,
+        data_origin=payload.data_origin,
+    )
+    return customer
+
+
+@app.get("/api/v1/customers", response_model=list[CustomerOut])
+def api_list_customers(db: Session = Depends(get_db)):
+    return db.query(models.Customer).all()
+
+
+@app.get("/api/v1/customers/{customer_id}", response_model=CustomerOut)
+def api_get_customer(customer_id: str, db: Session = Depends(get_db)):
+    customer = get_customer(db, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return customer
+
+
+@app.post("/api/v1/customers/{customer_id}/kyc", response_model=KYCOut)
+def api_submit_customer_kyc(customer_id: str, payload: KYCSubmit, db: Session = Depends(get_db)):
+    customer = get_customer(db, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    kyc_id = f"KYC-{uuid4().hex[:12].upper()}"
+    status = "VERIFIED" if payload.kyc_risk < 0.5 else "REVIEW"
+    result = models.KYCResult(
+        kyc_id=kyc_id,
+        customer_id=customer_id,
+        document_tamper_probability=payload.document_tamper_probability,
+        liveness_probability=payload.liveness_probability,
+        deepfake_probability=payload.deepfake_probability,
+        kyc_risk=payload.kyc_risk,
+        document_fingerprint=payload.document_fingerprint,
+        evidence_ids=payload.evidence_ids,
+        model_version=payload.model_version,
+        status=status,
+    )
+    db.add(result)
+    customer.kyc_status = status
+    customer.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(result)
+    return result
+
+
+@app.post(
+    "/api/v1/customers/{customer_id}/aml-analysis",
+    response_model=AMLAnalysisOut,
+)
+def run_customer_aml_analysis(customer_id: str, db: Session = Depends(get_db)):
+    try:
+        result = aml_runtime.analyze(db, customer_id)
+    except ValueError as exc:
+        response = AMLAnalysisOut(
+            status="invalid_input",
+            customer_id=customer_id,
+            message=str(exc),
+        )
+        return JSONResponse(
+            status_code=422,
+            content=response.model_dump(),
+        )
+
+    response = AMLAnalysisOut(
+        status=result.status,
+        customer_id=result.customer_id,
+        message=result.message,
+        assessment_id=result.assessment_id,
+        alert_id=result.alert_id,
+        fused_risk=result.fused_risk,
+        model_statuses=result.model_statuses or {},
+        model_versions=result.model_versions or {},
+        explanations=result.explanations or {},
+    )
+
+    status_code = {
+        "completed": 200,
+        "fallback_completed": 200,
+        "unavailable": 200,
+        "not_found": 404,
+        "invalid_input": 422,
+        "error": 500,
+    }.get(result.status, 500)
+
+    return JSONResponse(
+        status_code=status_code,
+        content=response.model_dump(),
+    )
+
+
+@app.get("/api/v1/customers/{customer_id}/kyc/latest", response_model=KYCOut)
+def api_get_latest_kyc(customer_id: str, db: Session = Depends(get_db)):
+    if get_customer(db, customer_id) is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    result = (
+        db.query(models.KYCResult)
+        .filter(models.KYCResult.customer_id == customer_id)
+        .order_by(models.KYCResult.created_at.desc())
+        .first()
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="KYC result not found")
+    return result
+
+
+@app.post("/api/v1/customers/{customer_id}/accounts", response_model=AccountOut)
+def api_create_customer_account(customer_id: str, payload: AccountCreate, db: Session = Depends(get_db)):
+    if payload.customer_id and payload.customer_id != customer_id:
+        raise HTTPException(status_code=400, detail="customer_id does not match path")
+    account = create_account(
+        db=db,
+        account_id=payload.account_id or f"ACCT-{uuid4().hex[:12].upper()}",
+        customer_id=customer_id,
+        account_type=payload.account_type,
+        status=payload.status,
+        balance=payload.balance,
+        currency=payload.currency,
+    )
+    return account
+
+
+@app.get("/api/v1/customers/{customer_id}/accounts", response_model=list[AccountOut])
+def api_list_customer_accounts(customer_id: str, db: Session = Depends(get_db)):
+    customer = get_customer(db, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return db.query(models.Account).filter(models.Account.customer_id == customer_id).all()
+
+
+@app.post("/api/v1/accounts", response_model=AccountOut, status_code=201)
+def api_create_account(payload: AccountCreate, db: Session = Depends(get_db)):
+    if not payload.customer_id:
+        raise HTTPException(status_code=400, detail="customer_id is required")
+    try:
+        return create_account(
+            db=db,
+            account_id=payload.account_id or f"ACCT-{uuid4().hex[:12].upper()}",
+            customer_id=payload.customer_id,
+            account_type=payload.account_type,
+            status=payload.status,
+            balance=payload.balance,
+            currency=payload.currency,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/accounts/{account_id}/transactions", response_model=TransactionOut)
+def api_create_account_transaction(account_id: str, payload: TransactionCreate, db: Session = Depends(get_db)):
+    if payload.account_id != account_id:
+        raise HTTPException(status_code=400, detail="account_id does not match path")
+    transaction = create_transaction(
+        db=db,
+        transaction_id=payload.transaction_id or f"TXN-{uuid4().hex[:12].upper()}",
+        account_id=payload.account_id,
+        direction=payload.direction,
+        amount=payload.amount,
+        description=payload.description,
+        counterparty=payload.counterparty,
+        currency=payload.currency,
+        status=payload.status,
+    )
+    return transaction
+
+
+@app.get("/api/v1/accounts/{account_id}/transactions", response_model=list[TransactionOut])
+def api_list_account_transactions(account_id: str, db: Session = Depends(get_db)):
+    account = db.query(models.Account).filter(models.Account.account_id == account_id).first()
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return db.query(models.Transaction).filter(models.Transaction.account_id == account_id).all()
+
+
+@app.get("/api/v1/customers/{customer_id}/transactions", response_model=list[TransactionOut])
+def api_list_customer_transactions(customer_id: str, db: Session = Depends(get_db)):
+    if get_customer(db, customer_id) is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return (
+        db.query(models.Transaction)
+        .join(models.Account, models.Transaction.account_id == models.Account.account_id)
+        .filter(models.Account.customer_id == customer_id)
+        .all()
+    )
+
+
+@app.post("/api/v1/transactions/import", response_model=list[TransactionOut])
+def api_import_transactions(payload: list[TransactionCreate], db: Session = Depends(get_db)):
+    imported = []
+    for item in payload:
+        try:
+            transaction = create_transaction(
+                db=db,
+                transaction_id=item.transaction_id or f"TXN-{uuid4().hex[:12].upper()}",
+                account_id=item.account_id,
+                direction=item.direction,
+                amount=item.amount,
+                description=item.description,
+                counterparty=item.counterparty,
+                currency=item.currency,
+                status=item.status,
+                data_origin="IMPORTED",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        imported.append(transaction)
+    return imported
+
+
+@app.post("/api/v1/assessments", response_model=RiskAssessmentOut)
+def api_create_assessment(payload: RiskAssessmentCreate, db: Session = Depends(get_db)):
+    assessment = create_risk_assessment(
+        db=db,
+        assessment_id=payload.assessment_id or f"ASM-{uuid4().hex[:12].upper()}",
+        customer_id=payload.customer_id,
+        kyc_risk=payload.kyc_risk,
+        aml_risk=payload.aml_risk,
+        fused_risk=payload.fused_risk,
+        uncertainty=payload.uncertainty,
+        priority=payload.priority,
+        human_review_required=payload.human_review_required,
+        suspected_typology=payload.suspected_typology,
+        case_id=payload.case_id,
+        gnn_risk=payload.gnn_risk,
+        xgboost_risk=payload.xgboost_risk,
+        final_risk=payload.final_risk,
+        risk_level=payload.risk_level,
+        top_risk_factors=payload.top_risk_factors,
+        gnn_model_version=payload.gnn_model_version,
+        xgboost_model_version=payload.xgboost_model_version,
+    )
+    return assessment
+
+
+@app.get("/api/v1/customers/{customer_id}/assessments", response_model=list[RiskAssessmentOut])
+def api_list_customer_assessments(customer_id: str, db: Session = Depends(get_db)):
+    customer = get_customer(db, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return db.query(models.RiskAssessment).filter(models.RiskAssessment.customer_id == customer_id).all()
+
+
+@app.get("/api/v1/assessments/{assessment_id}", response_model=RiskAssessmentOut)
+def api_get_assessment(assessment_id: str, db: Session = Depends(get_db)):
+    assessment = db.query(models.RiskAssessment).filter(
+        models.RiskAssessment.assessment_id == assessment_id
+    ).first()
+    if assessment is None:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    return assessment
+
+
+@app.post("/api/v1/alerts", response_model=AlertOut, status_code=201)
+def api_create_alert_route(payload: AlertCreate, db: Session = Depends(get_db)):
+    alert = create_alert(
+        db=db,
+        alert_id=payload.alert_id or f"ALT-{uuid4().hex[:12].upper()}",
+        customer_id=payload.customer_id,
+        alert_type=payload.alert_type,
+        severity=payload.severity,
+        status=payload.status,
+        narrative=payload.narrative,
+        account_id=payload.account_id,
+        case_id=payload.case_id,
+        assessment_id=payload.assessment_id,
+        reason_code=payload.reason_code,
+    )
+    return alert
+
+
+@app.get("/api/v1/alerts", response_model=list[AlertOut])
+def api_list_alerts(db: Session = Depends(get_db)):
+    return get_alerts(db)
+
+
+@app.get("/api/v1/alerts/{alert_id}", response_model=AlertOut)
+def api_get_alert(alert_id: str, db: Session = Depends(get_db)):
+    alert = get_alert(db, alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return alert
+
+
+@app.patch("/api/v1/alerts/{alert_id}", response_model=AlertOut)
+def api_update_alert(alert_id: str, payload: AlertUpdate, db: Session = Depends(get_db)):
+    alert = update_alert(
+        db=db,
+        alert_id=alert_id,
+        status=payload.status,
+        severity=payload.severity,
+        narrative=payload.narrative,
+    )
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return alert
+
+
+@app.patch("/api/v1/alerts/{alert_id}/status", response_model=AlertOut)
+def api_update_alert_status(alert_id: str, payload: AlertUpdate, db: Session = Depends(get_db)):
+    return api_update_alert(alert_id, payload, db)
+
+
+@app.post("/api/v1/cases/{case_id}/sar", response_model=SARResponse)
+def api_generate_case_sar(case_id: str, db: Session = Depends(get_db)):
+    case = get_case(db, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    case_response = CaseResponse.model_validate(case)
+    return generate_sar(case_response)
+
+
+@app.post("/api/v1/sar-drafts", response_model=SARDraftOut)
+def api_create_sar_draft(payload: SARDraftCreate, db: Session = Depends(get_db)):
+    sar_id = f"SAR-{uuid4().hex[:12].upper()}"
+
+    sar = create_sar_draft(
+        db=db,
+        sar_id=sar_id,
+        case_id=payload.case_id,
+        customer_id=payload.customer_id,
+        narrative=payload.narrative,
+        evidence_ids_used=payload.evidence_ids_used,
+        fincen_sources_used=payload.fincen_sources_used,
+        validation_status=payload.validation_status,
+        unsupported_claims=payload.unsupported_claims,
+        alert_id=payload.alert_id,
+        review_status=payload.review_status,
+    )
+    sar.alert_id = payload.alert_id
+    db.commit()
+    return sar
+
+
+@app.get("/api/v1/sar-drafts/{sar_id}", response_model=SARDraftOut)
+def api_get_sar_draft(sar_id: str, db: Session = Depends(get_db)):
+    sar = db.query(models.SARDraft).filter(models.SARDraft.sar_id == sar_id).first()
+    if sar is None:
+        raise HTTPException(status_code=404, detail="SAR draft not found")
+    return sar
+
+
+@app.patch("/api/v1/sar-drafts/{sar_id}/status", response_model=SARDraftOut)
+def api_update_sar_status(sar_id: str, payload: SARStatusUpdate, db: Session = Depends(get_db)):
+    sar = db.query(models.SARDraft).filter(models.SARDraft.sar_id == sar_id).first()
+    if sar is None:
+        raise HTTPException(status_code=404, detail="SAR draft not found")
+    sar.review_status = payload.status
+    sar.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(sar)
+    return sar
+
+
+@app.get("/api/v1/cases/{case_id}/sar", response_model=SARResponse)
+def api_get_case_sar(case_id: str, db: Session = Depends(get_db)):
+    case = get_case(db, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    case_response = CaseResponse.model_validate(case)
+    return generate_sar(case_response)
+
+
+@app.get("/api/v1/feedback")
+def api_feedback_export(db: Session = Depends(get_db)):
+    return get_feedback_dataset(db)
+
+
+@app.get("/api/v1/feedback/dataset")
+def api_feedback_dataset(db: Session = Depends(get_db)):
+    return get_feedback_dataset(db)
+
+
+@app.post("/api/v1/alerts/{alert_id}/feedback", status_code=201)
+def api_create_alert_feedback(
+    alert_id: str, payload: FeedbackCreate, db: Session = Depends(get_db)
+):
+    alert = get_alert(db, alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    if payload.alert_id and payload.alert_id != alert_id:
+        raise HTTPException(status_code=400, detail="alert_id does not match path")
+    if alert.customer_id != payload.customer_id:
+        raise HTTPException(status_code=400, detail="customer_id does not match alert")
+    feedback = models.AnalystFeedback(
+        feedback_id=f"FDBK-{uuid4().hex[:12].upper()}",
+        customer_id=payload.customer_id,
+        alert_id=alert_id,
+        assessment_id=payload.assessment_id,
+        decision=payload.decision,
+        rationale=payload.rationale,
+        model_versions=payload.model_versions,
+    )
+    db.add(feedback)
+    db.commit()
+    db.refresh(feedback)
+    return feedback
+
+transaction_xgboost_adapter = TrainedXGBoostAMLAdapter()
+
+
+@app.post(
+    "/api/v1/aml/score-transaction",
+    response_model=TransactionAMLResponse,
+)
+def score_transaction_with_xgboost(payload: TransactionAMLRequest):
+    result = transaction_xgboost_adapter.predict_transaction(
+        payload.to_model_row()
+    )
+
+    output = result.output or {}
+
+    return TransactionAMLResponse(
+        model_name=result.model_name,
+        model_version=result.model_version,
+        status=result.status.value,
+        ranking_score=result.score,
+        feature_count=output.get("feature_count"),
+        interpretation=output.get("interpretation"),
+        error=result.error,
+    )

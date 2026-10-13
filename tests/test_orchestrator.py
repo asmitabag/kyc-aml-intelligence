@@ -1,8 +1,9 @@
 from shared.schemas.kyc import KYCResponse
 from services.xai.orchestrator import run_case_triage
+import pytest
 
 
-def test_case_triage_orchestration():
+def test_case_triage_requires_available_gnn():
 
     kyc = KYCResponse(
         customer_id="C001",
@@ -14,9 +15,5 @@ def test_case_triage_orchestration():
         evidence_ids=["E001"]
     )
 
-    result = run_case_triage("CASE001", kyc)
-
-    assert result.case_id == "CASE001"
-    assert result.fused_risk == 0.826
-    assert result.priority == "HIGH"
-    assert result.human_review_required is True
+    with pytest.raises(RuntimeError, match="GNN model artifact and runtime adapter are not available"):
+        run_case_triage("CASE001", kyc)

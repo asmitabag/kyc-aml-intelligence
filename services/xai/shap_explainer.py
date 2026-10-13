@@ -26,6 +26,10 @@ def explain_risk(
     kyc_risk: float,
     aml_risk: float
 ) -> list[dict]:
+    """Explain the supported weighted KYC/AML fusion formula.
+
+    This is not an explanation of a trained XGBoost model.
+    """
 
     background = np.array([
         [0.0, 0.0],

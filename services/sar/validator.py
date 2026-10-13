@@ -23,36 +23,39 @@ def validate_sar(
     for evidence_id in evidence_ids:
         supported_values.add(evidence_id)
 
-    # Check whether the draft contains unsupported factual identifiers/values.
-    # This is intentionally conservative; the LLM/RAG validator will be added later.
+    # Fields whose values must come directly from verified case data.
+    factual_fields = (
+        "Case ID:",
+        "Customer ID:",
+        "KYC Risk:",
+        "AML Risk:",
+        "Fused Risk:",
+        "Uncertainty:",
+        "Priority:",
+        "Suspected Typology:",
+        "Human Review Required:",
+    )
+
     for line in sar_draft.splitlines():
         line = line.strip()
 
-        if not line:
+        if not line or ":" not in line:
             continue
 
-        if ":" not in line:
+        field, value = line.split(":", 1)
+        field = field.strip() + ":"
+        value = value.strip()
+
+        if field not in factual_fields:
             continue
 
-        value = line.split(":", 1)[1].strip()
-
-        if not value:
+        if not value or value == "UNKNOWN":
             continue
 
-        if value == "UNKNOWN":
-            continue
-
-        if value.startswith("-"):
-            value = value[1:].strip()
-
-        if value not in supported_values and line.startswith(
-            (
-                "Case ID:",
-                "Customer ID:",
-                "Suspected Typology:",
+        if value not in supported_values:
+            unsupported_claims.append(
+                f"{field} {value}"
             )
-        ):
-            unsupported_claims.append(value)
 
     status = "VALID" if not unsupported_claims else "INVALID"
 

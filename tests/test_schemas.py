@@ -55,6 +55,7 @@ def test_sar_schema():
         case_id="CASE001",
         sar_draft="Suspicious activity was observed.",
         evidence_ids_used=["E001"],
+        fincen_sources_used=[],
         validation_status="PASS",
         unsupported_claims=[]
     )

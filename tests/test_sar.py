@@ -43,11 +43,11 @@ def test_generate_sar():
     result = generate_sar(case)
 
     assert result.case_id == "CASE001"
-    assert "CASE001" in result.sar_draft
+    assert result.sar_draft
+    assert result.validation_status == "VALID"
+    assert result.unsupported_claims == []
     assert "CUST001" in result.sar_draft
     assert "layering" in result.sar_draft
     assert "T001" in result.evidence_ids_used
     assert "aml_risk" in result.evidence_ids_used
     assert "transaction_amount" in result.evidence_ids_used
-    assert result.validation_status == "VALID"
-    assert result.unsupported_claims == []

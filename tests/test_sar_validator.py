@@ -2,7 +2,7 @@ from shared.schemas.case import CaseResponse
 from services.sar.validator import validate_sar
 
 
-def test_validator_detects_unsupported_claim():
+def test_validator_detects_unsupported_customer():
     case = CaseResponse(
         case_id="CASE001",
         customer_id="CUST001",
@@ -22,7 +22,7 @@ def test_validator_detects_unsupported_claim():
     SUSPICIOUS ACTIVITY REPORT
 
     Case ID: CASE001
-    Customer ID: CUST001
+    Customer ID: CUST999
     Suspected Typology: layering
     """
 
@@ -32,5 +32,5 @@ def test_validator_detects_unsupported_claim():
         evidence_ids=[],
     )
 
-    assert status == "VALID"
-    assert unsupported_claims == []
+    assert status == "INVALID"
+    assert "Customer ID: CUST999" in unsupported_claims

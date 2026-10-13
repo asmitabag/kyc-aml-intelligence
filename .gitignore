@@ -24,3 +24,7 @@ data/processed/
 *.ckpt
 
 node_modules
+*.db
+*.bak
+data/fincen
+artifacts

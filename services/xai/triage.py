@@ -8,10 +8,32 @@ from services.xai.uncertainty import (
     calculate_uncertainty,
     requires_human_review
 )
+from services.model_adapters.contracts import InferenceResult
+from services.model_adapters.risk import RiskComponent, fuse_available_scores
 
 
 def calculate_fused_risk(kyc_risk: float, aml_risk: float) -> float:
     return round(0.4 * kyc_risk + 0.6 * aml_risk, 4)
+
+
+def fuse_component_scores(
+    kyc_result: InferenceResult[object],
+    aml_result: InferenceResult[object],
+) -> float | None:
+    return fuse_available_scores(
+        [
+            RiskComponent("kyc", kyc_result, 0.4),
+            RiskComponent("aml", aml_result, 0.6),
+        ]
+    )
+
+
+def alert_required(score: float | None, threshold: float = 0.8) -> bool:
+    """Return whether a valid fused score reaches the inclusive threshold."""
+
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError("Alert threshold must be between 0 and 1")
+    return score is not None and score >= threshold
 
 
 def determine_priority(fused_risk: float) -> str:

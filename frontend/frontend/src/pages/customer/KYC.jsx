@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { CheckCircle2, Circle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '../../components/common/PageHeader';
@@ -14,11 +15,13 @@ import { customerService } from '../../services/customerService';
 import { formatDateTime } from '../../utils/formatters';
 import { isKycComplete } from './kycHelpers';
 import NotLinked from './NotLinked';
+import CameraKyc from './kyc/CameraKyc';
 
 export default function KYC() {
   const { customerId, linked } = useOwnCustomer();
   const customer = useAsync(() => customerService.get(customerId), [customerId], { enabled: linked });
   const latest = useAsync(() => customerService.latestKyc(customerId), [customerId], { enabled: linked });
+  const [mode, setMode] = useState('camera'); // 'camera' | 'manual'
 
   if (!linked) return <NotLinked />;
 
@@ -35,9 +38,21 @@ export default function KYC() {
     { label: 'Review', done: done },
   ];
 
+  const tab = (key, label) => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={mode === key}
+      onClick={() => setMode(key)}
+      className={`rounded-lg px-3 py-1.5 text-sm ${mode === key ? 'bg-ink text-white' : 'text-slate-500 hover:text-ink'}`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <>
-      <PageHeader title="Identity verification" description="Submit your details so we can verify your identity." />
+      <PageHeader title="Identity verification" description="Scan your ID and confirm it's you with your camera." />
 
       <Notice tone="info" title="Demo workflow" className="mb-6">
         This environment verifies identity using a demonstration pipeline. Don't enter real identity documents or other sensitive personal data unless your administrator has told you this is a live system.
@@ -85,20 +100,40 @@ export default function KYC() {
           </Panel>
         </div>
 
-        <Panel className="lg:col-span-3" title={submitted ? 'Submit updated details' : 'Verification details'} description="Fields come directly from the verification service.">
-          <SchemaForm
-            specPath="/api/v1/customers/{customer_id}/kyc"
-            method="post"
-            // customer_id is forced from the session; the user can't choose it.
-            lockedValues={{ customer_id: customerId }}
-            submitLabel="Submit for verification"
-            // customer_id is only added to the body when the KYCSubmit schema defines it.
-            onSubmit={(payload) => customerService.submitKyc(customerId, payload)}
-            onSuccess={() => {
-              toast.success('Verification details submitted.');
-              reloadAll();
-            }}
-          />
+        <Panel
+          className="lg:col-span-3"
+          title={submitted ? 'Verify again' : 'Verify your identity'}
+          description={mode === 'camera' ? 'Photos are processed in your browser; only the extracted details and scores are sent.' : 'Fields come directly from the verification service.'}
+        >
+          <div role="tablist" className="mb-5 flex gap-1">
+            {tab('camera', 'Camera scan')}
+            {tab('manual', 'Enter manually')}
+          </div>
+
+          {mode === 'camera' ? (
+            <CameraKyc
+              customerId={customerId}
+              onSubmit={(payload) => customerService.submitKyc(customerId, payload)}
+              onSuccess={() => {
+                toast.success('Verification details submitted.');
+                reloadAll();
+              }}
+            />
+          ) : (
+            <SchemaForm
+              specPath="/api/v1/customers/{customer_id}/kyc"
+              method="post"
+              // customer_id is forced from the session; the user can't choose it.
+              lockedValues={{ customer_id: customerId }}
+              submitLabel="Submit for verification"
+              // customer_id is only added to the body when the KYCSubmit schema defines it.
+              onSubmit={(payload) => customerService.submitKyc(customerId, payload)}
+              onSuccess={() => {
+                toast.success('Verification details submitted.');
+                reloadAll();
+              }}
+            />
+          )}
         </Panel>
       </div>
     </>

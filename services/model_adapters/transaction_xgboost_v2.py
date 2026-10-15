@@ -4,12 +4,13 @@ import json
 
 import joblib
 import pandas as pd
+import xgboost as xgb
 
 from services.model_adapters.contracts import InferenceResult, ModelStatus
 
 
 class TransactionXGBoostV2Adapter:
-    """Adapter for the experimental synthetic-data transaction AML model."""
+    """Adapter for the portable synthetic-data transaction AML model."""
 
     MODEL_NAME = "xgboost_aml_v2"
     MODEL_VERSION = "2.1.0"
@@ -17,38 +18,52 @@ class TransactionXGBoostV2Adapter:
     def __init__(self) -> None:
         root = Path(__file__).resolve().parents[2]
         artifact_dir = root / "artifacts" / "aml_xgboost_v2"
-        self.model_path = artifact_dir / "transaction_xgboost_pipeline.joblib"
+        portable_dir = artifact_dir / "portable"
+
+        self.preprocessor_path = portable_dir / "preprocessor.joblib"
+        self.booster_path = portable_dir / "xgboost_booster.json"
         self.schema_path = artifact_dir / "feature_schema.json"
-        self._model = None
+
+        self._preprocessor = None
+        self._booster = None
         self._schema = None
 
     def _load(self) -> None:
-        if self._model is not None:
+        if (
+            self._preprocessor is not None
+            and self._booster is not None
+            and self._schema is not None
+        ):
             return
 
-        if not self.model_path.is_file():
-            raise FileNotFoundError(
-                f"Model artifact not found: {self.model_path}"
-            )
-        if not self.schema_path.is_file():
-            raise FileNotFoundError(
-                f"Feature schema not found: {self.schema_path}"
-            )
+        for path in (
+            self.preprocessor_path,
+            self.booster_path,
+            self.schema_path,
+        ):
+            if not path.is_file():
+                raise FileNotFoundError(f"Required model file not found: {path}")
 
         with self.schema_path.open("r", encoding="utf-8-sig") as file:
             schema = json.load(file)
 
-        model = joblib.load(self.model_path)
+        preprocessor = joblib.load(self.preprocessor_path)
 
+        booster = xgb.Booster()
+        booster.load_model(str(self.booster_path))
+
+        self._preprocessor = preprocessor
+        self._booster = booster
         self._schema = schema
-        self._model = model
 
     def predict_transaction(
         self, row: dict[str, Any]
     ) -> InferenceResult[dict[str, Any]]:
         try:
             self._load()
-            assert self._model is not None
+
+            assert self._preprocessor is not None
+            assert self._booster is not None
             assert self._schema is not None
 
             timestamp = pd.to_datetime(
@@ -87,8 +102,10 @@ class TransactionXGBoostV2Adapter:
             feature_order = self._schema["model_features"]
             X = pd.DataFrame([features], columns=feature_order)
 
-            # Preprocessing is already included in the fitted pipeline.
-            score = float(self._model.predict_proba(X)[0, 1])
+            # Apply the saved preprocessing, then predict with native XGBoost.
+            transformed = self._preprocessor.transform(X)
+            dmatrix = xgb.DMatrix(transformed)
+            score = float(self._booster.predict(dmatrix)[0])
 
             return InferenceResult(
                 model_name=self.MODEL_NAME,
